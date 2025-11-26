@@ -1,0 +1,169 @@
+########################################
+# Snakefile para pipeline Seurat scRNA-seq
+########################################
+
+##### #####
+# conda: "envs/snakemake-seurat.yaml"
+
+import os
+from snakemake.utils import min_version
+
+min_version("7.32.4")
+
+##### variables globales #####
+configfile: "config.yaml"
+
+SAMPLES = config["project"]["samples"]
+OUTDIR = config["project"]["output_dir"]
+
+rule all:
+    input:
+        expand(os.path.join(OUTDIR, "{sample}/final/{sample}_DONE.txt"), sample=SAMPLES)
+
+########################################
+# 1 - Import h5 file and QC
+########################################
+rule import_and_qc:
+    input:
+        h5 = config["input"]["h5_file"]
+    output:
+        rds = f"{OUTDIR}/{{sample}}/qc/{{sample}}_qc.rds",
+        qc_plot = f"{OUTDIR}/{{sample}}/qc/{{sample}}_qc.pdf"
+    params:
+        mt_pattern = config["qc"]["mt_pattern"],
+        min_features = config["qc"]["min_features"],
+        min_cells = config["qc"]["min_cells"],
+        max_features = config["qc"]["max_features"],
+        max_mt_percent = config["qc"]["max_mt_percent"]
+    threads: config["resources"]["import_and_qc"]["threads"]
+    resources:
+        mem = config["resources"]["import_and_qc"]["memory"]
+    script:
+        "scripts/01_import_qc.R"
+
+########################################
+# 2 - Filter cells
+########################################
+rule filter_cells:
+    input:
+        rds = f"{OUTDIR}/{{sample}}/qc/{{sample}}_qc.rds"
+    output:
+        filtered = f"{OUTDIR}/{{sample}}/filtered/{{sample}}_filtered.rds"
+    params:
+        min_features_after = config["qc"]["min_features_after"]
+    threads: config["resources"]["filter_cells"]["threads"]
+    resources:
+        mem = config["resources"]["filter_cells"]["memory"]
+    script:
+        "scripts/02_filter_cells.R"
+
+########################################
+# 3 - Normalice and variable genes
+########################################
+rule normalize_and_hvg:
+    input:
+        filtered = f"{OUTDIR}/{{sample}}/filtered/{{sample}}_filtered.rds"
+    output:
+        norm_hvg = f"{OUTDIR}/{{sample}}/hvg/{{sample}}_hvg.rds"
+    params:
+        method = config["normalization"]["method"],
+        scale_factor = config["normalization"]["scale_factor"],
+        hvg_method = config["variable_features"]["method"],
+        nfeatures = config["variable_features"]["nfeatures"]
+    threads: config["resources"]["normalize_and_hvg"]["threads"]
+    resources:
+        mem = config["resources"]["normalize_and_hvg"]["memory"]
+    script:
+        "scripts/03_normalize_hvg.R"
+
+########################################
+# 4 - Escalate and PCA
+########################################
+rule scale_and_pca:
+    input:
+        norm_hvg = f"{OUTDIR}/{{sample}}/hvg/{{sample}}_hvg.rds"
+    output:
+        pca = f"{OUTDIR}/{{sample}}/pca/{{sample}}_pca.rds"
+    params:
+        dims = config["pca"]["dims"],
+        features = config["scale_data"]["features"]
+    threads: config["resources"]["scale_and_pca"]["threads"]
+    resources:
+        mem = config["resources"]["scale_and_pca"]["memory"]
+    script:
+        "scripts/04_scale_pca.R"
+
+########################################
+# 5 - Clustering and UMAP
+########################################
+rule cluster_cells:
+    input:
+        pca = f"{OUTDIR}/{{sample}}/pca/{{sample}}_pca.rds"
+    output:
+        clustered = f"{OUTDIR}/{{sample}}/clustered/{{sample}}_clustered.rds",
+        umap = f"{OUTDIR}/{{sample}}/clustered/{{sample}}_umap.pdf"
+    params:
+        dims_neighbors = config["neighbors"]["dims"],
+        dims_umap = config["umap"]["dims"],
+        resolution = config["clustering"]["resolution"],
+        algorithm = config["clustering"]["algorithm"],
+        umap_min_dist = config["umap"]["min_dist"],
+        umap_n_neighbors = config["umap"]["n_neighbors"]
+    threads: config["resources"]["cluster_cells"]["threads"]
+    resources:
+        mem = config["resources"]["cluster_cells"]["memory"]
+    script:
+        "scripts/05_cluster_cells.R"
+
+
+########################################
+# 6 - Find markers
+########################################
+rule find_markers:
+    input:
+        clustered = f"{OUTDIR}/{{sample}}/clustered/{{sample}}_clustered.rds"
+    output:
+        markers = f"{OUTDIR}/{{sample}}/markers/{{sample}}_markers.csv",
+        markers_top = f"{OUTDIR}/{{sample}}/markers/{{sample}}_markers_top.csv",
+        heatmap = f"{OUTDIR}/{{sample}}/markers/{{sample}}_markers_heatmap.pdf"
+    params:
+        logfc_threshold = config["markers"]["logfc_threshold"],
+        test_use = config["markers"]["test_use"],
+        only_pos = config["markers"]["only_pos"],
+        min_pct = config["markers"]["min_pct"],
+        return_thresh = config["markers"]["return_thresh"],
+        specific_comparisons = config["markers"]["specific_comparisons"]
+    threads: config["resources"]["find_markers"]["threads"]
+    resources:
+        mem = config["resources"]["find_markers"]["memory"]
+    script:
+        "scripts/06_find_markers.R"
+
+########################################
+# 7 - Final and plots
+########################################
+rule annotate_and_final:
+    input:
+        clustered = f"{OUTDIR}/{{sample}}/clustered/{{sample}}_clustered.rds",
+        markers = f"{OUTDIR}/{{sample}}/markers/{{sample}}_markers.csv"
+    output:
+        final_rds = f"{OUTDIR}/{{sample}}/final/{{sample}}_final.rds",
+        umap_img = f"{OUTDIR}/{{sample}}/final/{{sample}}_umap.jpg",
+        heatmap = f"{OUTDIR}/{{sample}}/final/{{sample}}_heatmap.png"
+    params:
+        rename_clusters = config["rename_clusters"],
+        plots = config["plots"]
+    threads: config["resources"]["annotate_and_final"]["threads"]
+    resources:
+        mem = config["resources"]["annotate_and_final"]["memory"]
+    script:
+        "scripts/07_annotate_final.R"
+
+########################################
+rule mark_finished:
+    input:
+        f"{OUTDIR}/{{sample}}/final/{{sample}}_final.rds"
+    output:
+        f"{OUTDIR}/{{sample}}/final/{{sample}}_DONE.txt"
+    shell:
+        "echo 'DONE: {wildcards.sample}' > {output}"
