@@ -1,0 +1,50 @@
+#!/usr/bin/env Rscript
+
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+
+# Snakemake configuration
+config <- snakemake@config
+
+# Inputs / Outputs according to Snakefile
+input_file <- snakemake@input$clustered
+output_file <- snakemake@output$markers
+
+# Define optional paths for top markers and heatmap
+output_top <- file.path(dirname(output_file), paste0(tools::file_path_sans_ext(basename(output_file)), "_top.csv"))
+output_heatmap <- file.path(dirname(output_file), paste0(tools::file_path_sans_ext(basename(output_file)), "_heatmap.pdf"))
+
+# Create directories if they don't exist
+dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
+dir.create(dirname(output_top), recursive = TRUE, showWarnings = FALSE)
+dir.create(dirname(output_heatmap), recursive = TRUE, showWarnings = FALSE)
+
+# Load Seurat object
+pbmc <- readRDS(input_file)
+
+# Find all markers
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = config$markers$only_pos)
+
+# Save all markers
+write.csv(pbmc.markers, output_file, row.names = FALSE)
+
+# Filter top markers by cluster
+top_markers <- pbmc.markers %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  slice_head(n = config$plots$heatmap_top_n) %>%
+  ungroup()
+
+# Save top markers
+write.csv(top_markers, output_top, row.names = FALSE)
+
+# Generate heatmap only if there are top genes
+if(nrow(top_markers) > 0){
+  heatmap_plot <- DoHeatmap(pbmc, features = top_markers$gene) + NoLegend()
+  ggsave(output_heatmap, heatmap_plot, width = 12, height = 10)
+} else {
+  cat("Warning: No top markers to plot.\n")
+}
+
+cat("Marker analysis completed\n")
