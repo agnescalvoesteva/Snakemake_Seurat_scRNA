@@ -1,0 +1,122 @@
+# config.yaml - Parameters for Seurat scRNA-seq analysis
+# Configuration for modular Snakemake pipeline
+
+# Input files
+input:
+  h5_file: "data/GSM9308788_41BB-BHB_raw_feature_bc_matrix.h5"
+
+# Project configuration
+project:
+  name: "pbmc3k"
+  output_dir: "output"
+  samples: ["GSM9308788_41BB-BHB"]  # Can be a list of multiple samples
+
+# Quality control (QC)
+qc:
+  min_cells: 3
+  min_features: 200
+  mt_pattern: "^MT-"
+  # Optional filters after initial QC
+  max_features: 2500
+  max_mt_percent: 5
+  min_features_after: 200
+
+# Normalization
+normalization:
+  method: "LogNormalize"
+  scale_factor: 10000
+
+# Variable gene selection (HVG)
+variable_features:
+  method: "vst"
+  nfeatures: 2000
+  top_n_label: 10
+
+# Scaling
+scale_data:
+  features: "all"  # "all", "variable", or specific list of genes
+
+# Dimensionality reduction analysis
+pca:
+  dims: 1:15
+  num_features: 30  # number of features to visualize in heatmaps
+
+# Neighbors and clustering
+neighbors:
+  dims: 1:10
+clustering:
+  resolution: 0.5
+  algorithm: 1  # default Seurat clustering algorithm
+
+# UMAP
+umap:
+  dims: 1:10
+  label_clusters: true
+  point_size: 0.5
+  min_dist: 0.3
+  n_neighbors: 30
+
+# Marker analysis
+markers:
+  logfc_threshold: 0.25
+  test_use: "wilcox"  # "wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"
+  only_pos: true
+  min_pct: 0.1
+  return_thresh: 0.01
+  # Configuration for specific cluster comparisons
+  specific_comparisons:
+    - ident1: 2
+      ident2: null
+      name: "cluster2_vs_all"
+    - ident1: 5
+      ident2: [0, 3]
+      name: "cluster5_vs_0_3"
+
+# Visualizations
+plots:
+  # QC plots
+  violin_features: ["nFeature_RNA", "nCount_RNA", "percent.mt"]
+  qc_scatter_features: 
+    - ["nCount_RNA", "percent.mt"]
+    - ["nCount_RNA", "nFeature_RNA"]
+  
+  # Feature plots
+  feature_plot: ["CD3E", "CD8A", "CD4", "GNLY", "NKG7", "GZMB", "PRF1","PDCD1", "LAG3", "TIGIT", "HAVCR2","IL7R", "CCR7", "SELL","FCER1G", "CD247","MS4A1", "CD14", "LYZ", "PPBP"]
+  vln_features: ["CD3E", "CD8A", "GNLY", "PDCD1", "IL7R"]
+  raw_vln_features: ["NKG7", "GZMB", "PRF1", "LAG3", "CCR7"]
+  
+  # Heatmap
+  heatmap_top_n: 10
+  
+  # Plot saving configuration
+  umap_save:
+    file: "output/images/{sample}_umap_final.jpg"
+    width: 12
+    height: 7
+    quality: 50
+    dpi: 300
+  
+  variable_feature_plot:
+    width: 10
+    height: 8
+    dpi: 300
+  
+  pca_plot:
+    width: 8
+    height: 6
+    dpi: 300
+  
+  heatmap_plot:
+    width: 12
+    height: 10
+    dpi: 300
+
+# Cluster annotation
+rename_clusters:
+  - "Naive CD4 T"
+  - "CD14+ Mono"
+  - "Memory CD4 T"
+  - "B"
+  - "CD8 T"
+  - "FCGR3A+ Mono"
+  - "NK"
